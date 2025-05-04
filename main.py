@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import requests
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 import json
 import logging
@@ -39,6 +39,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger('goatcounter_bot')
 
+# Suppress httpx INFO logs
+logging.getLogger('httpx').setLevel(logging.WARNING)
+
 # Environment variables (use Replit secrets)
 GOAT_SITE = os.getenv("GOAT_SITE")  # e.g., uybinh3
 GOAT_API_KEY = os.getenv("GOAT_API_KEY")  # Your GoatCounter API key
@@ -61,7 +64,7 @@ async def make_api_request(url, params, headers, max_retries=3):
     """Make API request with retry logic for rate limits"""
     endpoint = url.replace(GOAT_BASE_URL, '')
     logger.info(f"Fetching data from GoatCounter API: {endpoint} with params: {params}")
-    
+
     for attempt in range(max_retries):
         try:
             logger.info(f"API request attempt {attempt+1}/{max_retries}")
@@ -93,109 +96,98 @@ async def make_api_request(url, params, headers, max_retries=3):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Get today's date and format it as YYYY-MM-DD
-        today = datetime.now().strftime("%Y-%m-%d")
-
-        # Set up API request
-        url = f"{GOAT_BASE_URL}/stats/hits"
-
-        # Parameters for the request
+        # Set date range to last 24 hours, rounded to the hour
+        now = datetime.now().replace(minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+        end = now
+        start = end - timedelta(hours=24)
         params = {
-            "start": today,
-            "end": today,
-            "limit": 5
+            "start": start.strftime("%Y-%m-%dT%H:00:00Z"),
+            "end": end.strftime("%Y-%m-%dT%H:00:00Z"),
+            "limit": 100
         }
 
-        # Headers with authentication
+        # Use Bearer auth as per documentation
         headers = {
             "Authorization": f"Bearer {GOAT_API_KEY}",
             "Content-Type": "application/json"
         }
 
         # Make the API request
-        data = await make_api_request(url, params, headers)
+        data = await make_api_request(f"{GOAT_BASE_URL}/stats/hits", params, headers)
 
-        # Extract the overall stats
-        total_pageviews = data.get('total_count', 0)
-        total_visitors = data.get('total_unique', 0)
+        # Calculate totals from hits
+        total_pageviews = sum(hit.get('count', 0) for hit in data.get('hits', []))
+        total_visitors = sum(1 for hit in data.get('hits', []) if hit.get('is_unique', False))
 
         # Create the main message
         message = (
-            f"📈 GoatCounter Stats for {today}:\n\n"
+            f"📈 GoatCounter Stats for {start.strftime('%Y-%m-%d %H:00')} to {end.strftime('%Y-%m-%d %H:00')} UTC:\n\n"
             f"👥 Unique visitors: {total_visitors}\n"
             f"📄 Total pageviews: {total_pageviews}\n"
         )
 
-        # Add top pages if available
-        if data.get('paths') and len(data['paths']) > 0:
-            message += "\n📊 Top pages today:\n"
-            for i, page in enumerate(data['paths'], 1):
-                path = page.get('path', 'Unknown')
-                views = page.get('count', 0)
-                uniques = page.get('count_unique', 0)
-                message += f"{i}. {path}: {views} views ({uniques} unique)\n"
+        # Add top paths if available
+        if data.get('hits') and len(data['hits']) > 0:
+            message += "\n📊 Top pages:\n"
+            path_counts = {}
+            for hit in data['hits']:
+                path = hit.get('path', 'Unknown')
+                path_counts[path] = path_counts.get(path, 0) + hit.get('count', 0)
+            for i, (path, views) in enumerate(sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:5], 1):
+                message += f"{i}. {path}: {views} views\n"
 
         await update.message.reply_text(message)
 
-    except requests.exceptions.RequestException as e:
-        await update.message.reply_text(f"❌ API Error: {str(e)}")
-    except KeyError as e:
-        await update.message.reply_text(f"❌ Data structure error: {str(e)}")
     except Exception as e:
-        await update.message.reply_text(f"❌ Unexpected error: {str(e)}")
+        logger.error(f"Error: {str(e)}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
 async def weekly_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Get date range (last 7 days)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=7)
-
-        # Format dates as YYYY-MM-DD
-        start_str = start_date.strftime("%Y-%m-%d")
-        end_str = end_date.strftime("%Y-%m-%d")
-
-        # Set up API request
-        url = f"{GOAT_BASE_URL}/stats/hits"
-
-        # Parameters for the request
+        # Set date range to last 7 days, rounded to the hour
+        now = datetime.now().replace(minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+        end = now
+        start = end - timedelta(days=7)
         params = {
-            "start": start_str,
-            "end": end_str,
-            "limit": 5
+            "start": start.strftime("%Y-%m-%dT%H:00:00Z"),
+            "end": end.strftime("%Y-%m-%dT%H:00:00Z"),
+            "limit": 100
         }
 
-        # Headers with authentication
+        # Use Bearer auth as per documentation
         headers = {
             "Authorization": f"Bearer {GOAT_API_KEY}",
             "Content-Type": "application/json"
         }
 
         # Make the API request
-        data = await make_api_request(url, params, headers)
+        data = await make_api_request(f"{GOAT_BASE_URL}/stats/hits", params, headers)
 
-        # Extract the overall stats
-        total_pageviews = data.get('total_count', 0)
-        total_visitors = data.get('total_unique', 0)
+        # Calculate totals from hits
+        total_pageviews = sum(hit.get('count', 0) for hit in data.get('hits', []))
+        total_visitors = sum(1 for hit in data.get('hits', []) if hit.get('is_unique', False))
 
         # Create the main message
         message = (
-            f"📈 GoatCounter Weekly Stats ({start_str} to {end_str}):\n\n"
+            f"📈 GoatCounter Weekly Stats for {start.strftime('%Y-%m-%d %H:00')} to {end.strftime('%Y-%m-%d %H:00')} UTC:\n\n"
             f"👥 Unique visitors: {total_visitors}\n"
             f"📄 Total pageviews: {total_pageviews}\n"
         )
 
-        # Add top pages if available
-        if data.get('paths') and len(data['paths']) > 0:
+        # Add top paths if available
+        if data.get('hits') and len(data['hits']) > 0:
             message += "\n📊 Top pages this week:\n"
-            for i, page in enumerate(data['paths'], 1):
-                path = page.get('path', 'Unknown')
-                views = page.get('count', 0)
-                uniques = page.get('count_unique', 0)
-                message += f"{i}. {path}: {views} views ({uniques} unique)\n"
+            path_counts = {}
+            for hit in data['hits']:
+                path = hit.get('path', 'Unknown')
+                path_counts[path] = path_counts.get(path, 0) + hit.get('count', 0)
+            for i, (path, views) in enumerate(sorted(path_counts.items(), key=lambda x: x[1], reverse=True)[:5], 1):
+                message += f"{i}. {path}: {views} views\n"
 
         await update.message.reply_text(message)
 
     except Exception as e:
+        logger.error(f"Error: {str(e)}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
 def main():
@@ -209,9 +201,9 @@ def main():
     # Start the bot
     logger.info("🚀 GoatCounter Stats Bot is running...")
     logger.info("Available commands:")
-    logger.info("  /stats - Get today's statistics")
+    logger.info("  /stats - Get last 24 hours statistics")
     logger.info("  /weekly - Get statistics for the past week")
     app.run_polling()
-    
+
 if __name__ == "__main__":
     main()
