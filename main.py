@@ -1,17 +1,14 @@
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import requests
 import os
 from datetime import datetime, timedelta, timezone
-import time
-import json
 import logging
 import asyncio
-
-# Keep server alive
 from flask import Flask
 from threading import Thread
 
+# Flask server for keep-alive
 web_app = Flask('')
 
 @web_app.route('/')
@@ -26,7 +23,7 @@ def run_web():
     web_app.run(host='0.0.0.0', port=8080)
 
 Thread(target=run_web).start()
-# end keep server alive
+# end Flask server
 
 # Set up logging
 logging.basicConfig(
@@ -42,7 +39,7 @@ logger = logging.getLogger('goatcounter_bot')
 # Suppress httpx INFO logs
 logging.getLogger('httpx').setLevel(logging.WARNING)
 
-# Environment variables (use Replit secrets)
+# Environment variables
 GOAT_SITE = os.getenv("GOAT_SITE")  # e.g., uybinh3
 GOAT_API_KEY = os.getenv("GOAT_API_KEY")  # Your GoatCounter API key
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN")  # Your Telegram Bot Token
@@ -92,7 +89,7 @@ async def make_api_request(url, params, headers, max_retries=3):
             if attempt == max_retries - 1:
                 raise
             logger.info(f"Retrying in 1 second...")
-            await asyncio.sleep(1)  # Wait before retry
+            await asyncio.sleep(1)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -190,6 +187,14 @@ async def weekly_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error: {str(e)}")
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
+async def set_commands(bot):
+    commands = [
+        BotCommand(command="stats", description="Get last 24 hours statistics"),
+        BotCommand(command="weekly", description="Get statistics for the past week")
+    ]
+    await bot.set_my_commands(commands)
+    logger.info("Menu commands set successfully")
+
 def main():
     # Initialize the bot
     app = ApplicationBuilder().token(TG_BOT_TOKEN).build()
@@ -197,6 +202,10 @@ def main():
     # Add command handlers
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("weekly", weekly_stats))
+
+    # Set menu commands at startup
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(set_commands(app.bot))
 
     # Start the bot
     logger.info("🚀 GoatCounter Stats Bot is running...")
