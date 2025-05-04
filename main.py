@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 import time
 import json
 
+from keep_alive import keep_alive
+keep_alive()
+
 # Environment variables (use Replit secrets)
 GOAT_SITE = os.getenv("GOAT_SITE")  # e.g., uybinh3
 GOAT_API_KEY = os.getenv("GOAT_API_KEY")  # Your GoatCounter API key
