@@ -6,8 +6,22 @@ from datetime import datetime, timedelta
 import time
 import json
 
-from keep_alive import keep_alive
-keep_alive()
+# Keep server alive by running a simple web server
+from flask import Flask
+from threading import Thread
+
+# Start a simple web server to keep Replit alive
+web_app = Flask('')
+
+@web_app.route('/')
+def home():
+    return "✅ Bot is running."
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=8080)
+
+Thread(target=run_web).start()
+# end keep server alive
 
 # Environment variables (use Replit secrets)
 GOAT_SITE = os.getenv("GOAT_SITE")  # e.g., uybinh3
