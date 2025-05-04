@@ -5,6 +5,8 @@ import os
 from datetime import datetime, timedelta
 import time
 import json
+import logging
+import asyncio
 
 # Keep server alive
 from flask import Flask
@@ -26,6 +28,17 @@ def run_web():
 Thread(target=run_web).start()
 # end keep server alive
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('goatcounter_bot.log')
+    ]
+)
+logger = logging.getLogger('goatcounter_bot')
+
 # Environment variables (use Replit secrets)
 GOAT_SITE = os.getenv("GOAT_SITE")  # e.g., uybinh3
 GOAT_API_KEY = os.getenv("GOAT_API_KEY")  # Your GoatCounter API key
@@ -46,12 +59,17 @@ async def check_rate_limit(response):
 
 async def make_api_request(url, params, headers, max_retries=3):
     """Make API request with retry logic for rate limits"""
+    endpoint = url.replace(GOAT_BASE_URL, '')
+    logger.info(f"Fetching data from GoatCounter API: {endpoint} with params: {params}")
+    
     for attempt in range(max_retries):
         try:
+            logger.info(f"API request attempt {attempt+1}/{max_retries}")
             response = requests.get(url, params=params, headers=headers)
             wait_time = await check_rate_limit(response)
 
             if wait_time > 0:
+                logger.warning(f"Rate limit exceeded. Waiting {wait_time} seconds before retry.")
                 await asyncio.sleep(wait_time)
                 continue
 
@@ -60,13 +78,17 @@ async def make_api_request(url, params, headers, max_retries=3):
 
             if 'error' in data or 'errors' in data:
                 error_msg = data.get('error', json.dumps(data.get('errors', 'Unknown error')))
+                logger.error(f"API error: {error_msg}")
                 raise Exception(f"API error: {error_msg}")
 
+            logger.info(f"Successfully fetched data from {endpoint}")
             return data
 
         except requests.exceptions.RequestException as e:
+            logger.error(f"Request exception: {str(e)}")
             if attempt == max_retries - 1:
                 raise
+            logger.info(f"Retrying in 1 second...")
             await asyncio.sleep(1)  # Wait before retry
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,10 +207,10 @@ def main():
     app.add_handler(CommandHandler("weekly", weekly_stats))
 
     # Start the bot
-    print("🚀 GoatCounter Stats Bot is running...")
-    print("Available commands:")
-    print("  /stats - Get today's statistics")
-    print("  /weekly - Get statistics for the past week")
+    logger.info("🚀 GoatCounter Stats Bot is running...")
+    logger.info("Available commands:")
+    logger.info("  /stats - Get today's statistics")
+    logger.info("  /weekly - Get statistics for the past week")
     app.run_polling()
     
 if __name__ == "__main__":
