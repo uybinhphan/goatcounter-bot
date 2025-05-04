@@ -6,11 +6,10 @@ from datetime import datetime, timedelta
 import time
 import json
 
-# Keep server alive by running a simple web server
+# Keep server alive
 from flask import Flask
 from threading import Thread
 
-# Start a simple web server to keep Replit alive
 web_app = Flask('')
 
 @web_app.route('/')
