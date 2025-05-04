@@ -16,6 +16,10 @@ web_app = Flask('')
 def home():
     return "✅ Bot is running."
 
+@web_app.route('/health')
+def health():
+    return "OK", 200
+
 def run_web():
     web_app.run(host='0.0.0.0', port=8080)
 
